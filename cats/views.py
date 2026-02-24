@@ -8,6 +8,8 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from .models import Cat, Mission, Target
 
+MAX_CAT_MISSIONS = 3
+
 
 def get_json(request: HttpRequest) -> dict:
     # ok, now I understand the value of DRF, lol
@@ -59,7 +61,7 @@ def cat(request: HttpRequest, cat_id: int) -> JsonResponse:
             )
         c = Cat.objects.get(pk=cat_id)
 
-        new_salary = int(data["salary"])
+        new_salary = data["salary"]
         c.salary = new_salary
         c.save()
         return JsonResponse({"ok": cat_id, "new_salary": new_salary})
@@ -86,7 +88,7 @@ def create_cat(request: HttpRequest) -> JsonResponse:
     data = get_json(request)
 
     name = data["name"]
-    experience = int(data["years_exp"])
+    experience = data["years_exp"]
     breed = data["breed"]
     if not is_valid_breed(breed):
         # TODO: move this check onto the model?
@@ -102,7 +104,7 @@ def create_cat(request: HttpRequest) -> JsonResponse:
             status=400,
         )
 
-    salary = int(data["salary"])
+    salary = data["salary"]
     cat = Cat(name=name, experience=experience, breed=breed, salary=salary)
     cat.save()
 
@@ -168,12 +170,15 @@ def mission(request: HttpRequest, mission_id: int) -> JsonResponse:
         # NOTE: allows to un-assign cats
         # that's a feature, not a bug
         maybe_cat = None
-        match data.get("cat_id"):
-            case None:
-                pass
-            case cat_id:
-                cat_id = int(data["cat_id"])
-                maybe_cat = get_object_or_404(Cat, pk=cat_id)
+        if (cat_id := data.get("cat_id")) is not None:
+            # cat_id should already be int
+            maybe_cat = get_object_or_404(Cat, pk=cat_id)
+            # TODO: surely there must be some way to do it with ORM
+            if maybe_cat.mission_set.count() >= MAX_CAT_MISSIONS:
+                return JsonResponse(
+                    {"err": f"cat already has {MAX_CAT_MISSIONS} jobs"},
+                    status=400,
+                )
         m.cat = maybe_cat
         m.save()
 
@@ -187,15 +192,17 @@ def mission(request: HttpRequest, mission_id: int) -> JsonResponse:
 def create_mission(request: HttpRequest) -> JsonResponse:
     data = get_json(request)
     maybe_cat = None
-    match data.get("cat_id"):
-        case None:
-            pass
-        case cat_id:
-            maybe_cat = get_object_or_404(Cat, pk=int(cat_id))
+    if (cat_id := data.get("cat_id")) is not None:
+        maybe_cat = get_object_or_404(Cat, pk=cat_id)
 
     mission = Mission(cat=maybe_cat, complete=False)
-    if maybe_cat is not None and maybe_cat.mission_set.count() >= 3:
-        return JsonResponse({"err": "cat already has 3 jobs"}, status=400)
+    if (
+        maybe_cat is not None
+        and maybe_cat.mission_set.count() >= MAX_CAT_MISSIONS
+    ):
+        return JsonResponse(
+            {"err": f"cat already has {MAX_CAT_MISSIONS} jobs"}, status=400
+        )
     # save mission to able to link targets
     mission.save()
 
@@ -218,16 +225,10 @@ def target(request: HttpRequest, target_id: int) -> JsonResponse:
             {"err": "only 'complete' and 'notes' can be changed"}, status=400
         )
     t = get_object_or_404(Target, pk=target_id)
-    match data.get("notes"):
-        case None:
-            pass
-        case notes:
-            t.notes = notes
-    match data.get("complete"):
-        case None:
-            pass
-        case status:
-            t.complete = status
+    if (notes := data.get("notes")) is not None:
+        t.notes = notes
+    if (status := data.get("complete")) is not None:
+        t.complete = status
     t.save()
     return JsonResponse(
         {

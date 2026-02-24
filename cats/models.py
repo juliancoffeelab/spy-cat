@@ -1,6 +1,7 @@
 # Create your models here.
 from django.db import IntegrityError, models
 
+
 class Cat(models.Model):
     # ok, I think we need at least some length limit for a name
     # 200 should be pretty generous
@@ -27,6 +28,13 @@ class Mission(models.Model):
 
     def __str__(self):
         return self.id
+
+    def save(self, *args, **kwargs):
+        # TODO:
+        # I wish I knew how to open a transaction here, try to
+        # save a new mission, check if cats don't have more than three missions
+        # here and if they have, do a rollback
+        super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
         if self.cat is not None:
